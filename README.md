@@ -13,7 +13,11 @@ server/            серверна частина (REST API), TypeScript + Nest
   src/api/             контролери NestJS, перевірка доступу, обробка помилок
   test/unit, test/integration, test/e2e, test/perf
   scripts/seed.ts      демонстраційні дані
-web/               веб-клієнт, React + Vite + Leaflet (OpenStreetMap)
+web/               веб-клієнт, React + Vite + Leaflet (OpenStreetMap), дизайн-система «Стежка»
+  src/pages/           сторінки (пошук, маршрут, редактор, профіль, вхід, модерація…)
+  src/components/      макет із нижніми вкладками для телефонів, карта, іконки, діалоги, тости
+  src/ui.ts            кольори видів пересування й категорій, форматування чисел і дат
+  src/styles.css       стилі mobile-first (точки зупинки 640 і 900 px)
 docs/models        вихідні файли UML-діаграм (Mermaid, Graphviz)
 docs/img           згенеровані зображення діаграм
 docker-compose.yml розгортання (nginx + Node.js)
@@ -87,6 +91,7 @@ docker compose up --build -d
 | `POST /routes/:id/pois`, `DELETE /routes/:id/pois/:poiId`, `POST /routes/:id/pois/:poiId/suggest` | точки інтересу | автор |
 | `POST /routes/import`, `GET /routes/:id/export?format=gpx\|kml\|geojson`, `GET /routes/:id/navigation-link` | обмін маршрутами | користувач / гість |
 | `GET /routes/:id/comments`, `POST /routes/:id/comments`, `POST /routes/:id/rating` | відгуки | гість / користувач |
+| `GET /routes/:id/ratings` | зведення оцінок: середнє, кількість, розподіл за зірками | гість |
 | `POST /complaints` | скарга | користувач |
 | `GET /moderation/complaints`, `POST /moderation/complaints/:id/resolve`, `POST /moderation/routes/:id/restore` | модерація | модератор |
 | `GET /moderation/pois`, `POST /moderation/pois/:routeId/:poiId/approve\|reject` | точки інтересу спільноти | модератор |
