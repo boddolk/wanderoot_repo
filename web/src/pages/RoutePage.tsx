@@ -1,105 +1,258 @@
-import { FormEvent, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { api, CATEGORY_LABEL, CommentView, formatDuration, MODE_LABEL, Route } from '../api';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { Link, useLocation, useParams } from 'react-router-dom';
+import { api, CommentView, RatingSummary, Route, tokenStore } from '../api';
 import { isModerator, useAuth } from '../auth';
+import { Avatar, EmptyState, Loading, ModeChip, ratingsWord, StatTile, StatusPill } from '../components/common';
+import { Dialog } from '../components/Dialog';
+import { CATEGORY_ICON, Icon, Star } from '../components/Icon';
 import { RouteMap } from '../components/RouteMap';
+import { errorText, useToast } from '../components/Toast';
+import { category, duration, km, MODES, rating, REASONS, relativeTime } from '../ui';
 
-const REASONS: Record<string, string> = { SPAM: 'Спам', OFFENSIVE: 'Образливий вміст', WRONG_DATA: 'Неправдиві дані', OTHER: 'Інше' };
+type ComplaintTarget = { type: 'ROUTE' | 'COMMENT'; id: string; label: string };
 
 export function RoutePage() {
   const { id = '' } = useParams();
   const { user } = useAuth();
+  const location = useLocation();
+  const toast = useToast();
   const [route, setRoute] = useState<Route | null>(null);
+  const [notFound, setNotFound] = useState('');
   const [comments, setComments] = useState<CommentView[]>([]);
+  const [summary, setSummary] = useState<RatingSummary | null>(null);
   const [myRating, setMyRating] = useState<number | null>(null);
+  const [hoverStar, setHoverStar] = useState(0);
   const [text, setText] = useState('');
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [sending, setSending] = useState(false);
+  const [complaint, setComplaint] = useState<ComplaintTarget | null>(null);
 
-  const load = () => {
-    api.route(id).then(setRoute).catch((e) => setError(e.message));
+  const load = useCallback(() => {
+    api.route(id).then((r) => { setRoute(r); setNotFound(''); }).catch((e) => setNotFound(e.message));
     api.comments(id).then(setComments).catch(() => setComments([]));
+    api.ratingSummary(id).then(setSummary).catch(() => setSummary(null));
     if (user) api.myRating(id).then((r) => setMyRating(r.value)).catch(() => undefined);
-  };
-  useEffect(load, [id, user]);
+  }, [id, user]);
+  useEffect(load, [load]);
 
-  const run = (action: Promise<unknown>, ok: string) => action.then(() => { setMessage(ok); setError(''); load(); }).catch((e) => setError(e.message));
-  const rate = (v: number) => run(api.rate(id, v), 'Дякуємо за оцінку!');
-  const comment = (e: FormEvent) => { e.preventDefault(); run(api.addComment(id, text).then(() => setText('')), 'Коментар додано'); };
-  const complain = (targetType: string, targetId: string) => {
-    const reason = window.prompt(`Причина скарги (${Object.keys(REASONS).join(', ')}):`, 'WRONG_DATA');
-    if (reason && REASONS[reason]) run(api.complain({ targetType, targetId, reason }), 'Скаргу надіслано модераторам');
-  };
-  const openNavigator = () => api.navigationLink(id).then((r) => window.open(r.url, '_blank')).catch((e) => setError(e.message));
+  if (notFound && !route) {
+    return <div className="container page-pad"><EmptyState icon="map" title="Маршрут недоступний" text={notFound}
+      action={<Link to="/" className="btn btn-primary">До пошуку маршрутів</Link>} /></div>;
+  }
+  if (!route) return <Loading label="Завантажуємо маршрут…" />;
 
-  if (error && !route) return <p className="error">{error}</p>;
-  if (!route) return <p>Завантаження…</p>;
   const isOwner = user?.id === route.ownerId;
+  const canReview = !!user && !isOwner && route.status === 'PUBLISHED';
+  const start = route.waypoints[0];
+  const finish = route.waypoints.length > 1 ? route.waypoints[route.waypoints.length - 1] : null;
+
+  const rate = async (v: number) => {
+    try { await api.rate(id, v); setMyRating(v); toast.success('Дякуємо за оцінку!'); load(); } catch (e) { toast.error(errorText(e)); }
+  };
+  const comment = async (e: FormEvent) => {
+    e.preventDefault();
+    setSending(true);
+    try { await api.addComment(id, text); setText(''); toast.success('Коментар додано'); load(); } catch (err) { toast.error(errorText(err)); } finally { setSending(false); }
+  };
+  const openNavigator = () => api.navigationLink(id).then((r) => window.open(r.url, '_blank', 'noopener')).catch((e) => toast.error(e.message));
+  /** Експорт через fetch з токеном: так працює і для власних чернеток, які гостю недоступні. */
+  const download = async (format: string) => {
+    try {
+      const token = tokenStore.get();
+      const res = await fetch(api.exportUrl(route.id, format), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? 'Не вдалося експортувати маршрут');
+      const name = /filename\*=UTF-8''([^;]+)/.exec(res.headers.get('content-disposition') ?? '')?.[1];
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = name ? decodeURIComponent(name) : `route.${format}`;
+      document.body.appendChild(a); a.click(); a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) { toast.error(errorText(e)); }
+  };
+  const restore = () => api.restoreRoute(route.id).then(() => { toast.success('Маршрут відновлено'); load(); }).catch((e) => toast.error(e.message));
+
+  const maxBar = Math.max(1, ...(summary?.histogram ?? [0]));
 
   return (
-    <div className="route-page">
-      <div className="route-head">
-        <div>
+    <div className="route-page container page-pad">
+      <nav className="breadcrumbs" aria-label="Навігаційний ланцюжок">
+        <Link to="/">Маршрути</Link><span aria-hidden="true">/</span>
+        <Link to={`/?mode=${route.mode}`}>{MODES[route.mode].label}</Link><span aria-hidden="true">/</span>
+        <span aria-current="page">{route.title}</span>
+      </nav>
+
+      {route.hiddenReason && (
+        <div className="banner banner-warning" role="note">
+          <Icon name="alert" />
+          <span>Маршрут приховано модератором: <b>{route.hiddenReason}</b></span>
+          {isModerator(user) && route.status === 'HIDDEN' && <button type="button" className="btn btn-secondary btn-sm" onClick={restore}>Відновити</button>}
+        </div>
+      )}
+
+      <div className="route-hero">
+        <RouteMap className="route-hero-map" label={`Карта маршруту «${route.title}»`} waypoints={route.waypoints} mode={route.mode} pois={route.pois} layerToggle fullscreenToggle />
+        <div className="route-hero-card">
+          <div className="row-wrap">
+            <ModeChip mode={route.mode} />
+            <StatusPill status={route.status} />
+          </div>
           <h1>{route.title}</h1>
-          <div className="meta">
-            <span className={`badge mode-${route.mode.toLowerCase()}`}>{MODE_LABEL[route.mode]}</span>
-            <span>{route.lengthKm.toFixed(2)} км</span>
-            <span>≈ {formatDuration(route.durationMin)}</span>
-            <span>★ {route.ratingAvg ? route.ratingAvg.toFixed(1) : '–'} ({route.ratingCount})</span>
-            {route.status !== 'PUBLISHED' && <span className="badge status">{route.status === 'DRAFT' ? 'Чернетка' : 'Приховано'}</span>}
-          </div>
-        </div>
-        <div className="actions">
-          {isOwner && <Link className="button" to={`/routes/${route.id}/edit`}>Редагувати</Link>}
-          {isModerator(user) && route.status === 'HIDDEN' && <button onClick={() => run(api.restoreRoute(route.id), 'Маршрут відновлено')}>Відновити</button>}
+          {route.author && (
+            <span className="author"><Avatar name={route.author.displayName} seed={route.author.id} size={30} />
+              <span>Автор: <b>{route.author.displayName}</b>{route.author.city && ` · ${route.author.city}`}</span></span>
+          )}
+          {isOwner && <Link to={`/routes/${route.id}/edit`} className="btn btn-secondary btn-sm"><Icon name="edit" size={16} />Редагувати</Link>}
         </div>
       </div>
-      {route.hiddenReason && <p className="warning">Приховано модератором: {route.hiddenReason}</p>}
-      {message && <p className="success">{message}</p>}
-      {error && <p className="error">{error}</p>}
 
-      <RouteMap waypoints={route.waypoints} pois={route.pois} />
-
-      <div className="columns">
-        <section className="card">
-          <h2>Опис</h2>
-          <p className="description">{route.description || 'Опис відсутній.'}</p>
-          {route.tags.length > 0 && <div className="tags">{route.tags.map((t) => <span key={t} className="tag">#{t}</span>)}</div>}
-          <h3>Точки інтересу</h3>
-          {route.pois.length === 0 ? <p className="muted">Немає</p> : (
-            <ul className="poi-list">{route.pois.map((p) => <li key={p.id}><span className={`dot poi-${p.category.toLowerCase()}`} /> <b>{p.name}</b> – {CATEGORY_LABEL[p.category]}{p.description && `: ${p.description}`}</li>)}</ul>
-          )}
-          <h3>Експорт</h3>
-          <div className="row">
-            {['gpx', 'kml', 'geojson'].map((f) => <a key={f} className="button secondary" href={api.exportUrl(route.id, f)}>{f.toUpperCase()}</a>)}
-            <button className="secondary" onClick={openNavigator}>Відкрити в Google Maps</button>
+      <section className="route-stats" aria-label="Показники маршруту">
+        <StatTile label="Довжина" value={km(route.lengthKm, true)} />
+        <StatTile label="Орієнтовний час" value={`≈ ${duration(route.durationMin)}`} />
+        <StatTile label="Рейтинг" value={<><span className="star-ink">★</span> {rating(route.ratingAvg)}</>} hint={ratingsWord(route.ratingCount)} />
+        <StatTile label="Точок інтересу" value={route.pois.length} />
+        <div className="route-actions">
+          <button type="button" className="btn btn-primary btn-block" onClick={openNavigator} disabled={route.waypoints.length < 2}>
+            <Icon name="navigation" size={18} />Вирушити з Google Maps
+          </button>
+          <div className="btn-group" role="group" aria-label="Експорт маршруту">
+            {['gpx', 'kml', 'geojson'].map((f) => <button key={f} type="button" onClick={() => download(f)}>{f === 'geojson' ? 'GeoJSON' : f.toUpperCase()}</button>)}
           </div>
+        </div>
+      </section>
+
+      <div className="route-columns">
+        <section className="card card-pad">
+          <h2 className="h2">Про маршрут</h2>
+          <p className="description">{route.description || 'Автор ще не додав опис.'}</p>
+          {route.tags.length > 0 && (
+            <div className="tag-list">{route.tags.map((t) => <Link key={t} to={`/?tag=${encodeURIComponent(t)}`} className="tag-link">#{t}</Link>)}</div>
+          )}
+
+          <h2 className="h2 mt">Що побачите дорогою</h2>
+          <ol className="timeline">
+            {start && (
+              <li><span className="tl-node tl-end" style={{ borderColor: MODES[route.mode].color, color: MODES[route.mode].ink }}>А</span>
+                <div><b>Старт</b><span className="muted">{start.lat.toFixed(4)}, {start.lon.toFixed(4)}</span></div></li>
+            )}
+            {route.pois.map((p) => {
+              const c = category(p.category);
+              return (
+                <li key={p.id}><span className="tl-node" style={{ background: c.color }}><Icon name={CATEGORY_ICON[p.category] ?? 'pin'} size={16} stroke={2.2} /></span>
+                  <div>
+                    <div className="row-wrap"><b className="tl-title">{p.name}</b><span className="chip-cat" style={{ background: c.tint, color: c.ink }}>{c.label}</span></div>
+                    {p.description && <p>{p.description}</p>}
+                  </div></li>
+              );
+            })}
+            {finish && (
+              <li><span className="tl-node tl-finish" style={{ background: MODES[route.mode].color }}>Б</span>
+                <div><b>Фініш</b><span className="muted">{finish.lat.toFixed(4)}, {finish.lon.toFixed(4)}</span></div></li>
+            )}
+          </ol>
+          {route.pois.length === 0 && <p className="muted">Точок інтересу на цьому маршруті ще немає.</p>}
         </section>
 
-        <section className="card">
-          <h2>Відгуки</h2>
-          {user && !isOwner && route.status === 'PUBLISHED' && (
-            <div className="stars">Ваша оцінка:{' '}
-              {[1, 2, 3, 4, 5].map((v) => <button key={v} className={`star ${myRating && v <= myRating ? 'on' : ''}`} onClick={() => rate(v)}>★</button>)}
+        <section className="card card-pad reviews" aria-labelledby="reviews-title">
+          <h2 className="h2" id="reviews-title">Відгуки</h2>
+          <div className="rating-summary">
+            <div className="rating-big">
+              <b>{rating(route.ratingAvg)}</b>
+              <span className="stars-row" aria-hidden="true">{[1, 2, 3, 4, 5].map((v) => <Star key={v} size={18} color={v <= Math.round(route.ratingAvg) ? '#E39B2D' : '#DDE3DC'} />)}</span>
+              <span className="muted">{ratingsWord(route.ratingCount)}</span>
+            </div>
+            {summary && (
+              <div className="histogram" aria-label="Розподіл оцінок">
+                {[5, 4, 3, 2, 1].map((v) => (
+                  <div key={v} className="hist-row"><span>{v}</span>
+                    <span className="hist-bar"><span style={{ width: `${(summary.histogram[v - 1] / maxBar) * 100}%` }} /></span>
+                    <span>{summary.histogram[v - 1]}</span></div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {canReview && (
+            <div className="your-rating">
+              <span>Ваша оцінка</span>
+              <div className="star-input" role="radiogroup" aria-label="Ваша оцінка" onMouseLeave={() => setHoverStar(0)}>
+                {[1, 2, 3, 4, 5].map((v) => (
+                  <button key={v} type="button" role="radio" aria-checked={myRating === v} aria-label={`${v} з 5`}
+                    className={(hoverStar || myRating || 0) >= v ? 'on' : ''} onMouseEnter={() => setHoverStar(v)} onClick={() => rate(v)}>★</button>
+                ))}
+              </div>
             </div>
           )}
-          {comments.length === 0 && <p className="muted">Коментарів ще немає.</p>}
-          {comments.map((c) => (
-            <div key={c.id} className={`comment ${c.status === 'HIDDEN' ? 'hidden' : ''}`}>
-              <div className="comment-head"><b>{c.authorName}</b> <span className="muted">{new Date(c.createdAt).toLocaleString('uk-UA')}</span>
-                {user && user.id !== c.authorId && <button className="link" onClick={() => complain('COMMENT', c.id)}>поскаржитися</button>}</div>
-              <p>{c.text}</p>
-            </div>
-          ))}
+
+          <div className="comments">
+            {comments.length === 0 && <p className="muted">Коментарів ще немає — будьте першим.</p>}
+            {comments.map((c) => (
+              <article key={c.id} className={`comment${c.status === 'HIDDEN' ? ' is-hidden' : ''}`}>
+                <Avatar name={c.authorName} seed={c.authorId} size={40} />
+                <div className="comment-body">
+                  <div className="comment-head">
+                    <b>{c.authorName}</b><span className="muted">{relativeTime(c.createdAt)}</span>
+                    {c.status === 'HIDDEN' && <span className="status-pill status-hidden"><span className="dot" />Приховано</span>}
+                    {user && user.id !== c.authorId && (
+                      <button type="button" className="icon-btn icon-btn-sm" aria-label="Поскаржитися на коментар"
+                        onClick={() => setComplaint({ type: 'COMMENT', id: c.id, label: `коментар користувача ${c.authorName}` })}><Icon name="flag" size={16} /></button>
+                    )}
+                  </div>
+                  <p>{c.text}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+
           {user && route.status === 'PUBLISHED' ? (
-            <form onSubmit={comment} className="comment-form">
-              <textarea value={text} maxLength={1000} onChange={(e) => setText(e.target.value)} placeholder="Поділіться враженнями або порадою" />
-              <button type="submit" disabled={!text.trim()}>Надіслати</button>
+            <form className="comment-form" onSubmit={comment}>
+              <label htmlFor="comment-text">Поділіться враженнями</label>
+              <textarea id="comment-text" value={text} maxLength={1000} onChange={(e) => setText(e.target.value)} placeholder="Як пройшов маршрут, на що звернути увагу…" />
+              <div className="comment-form-foot">
+                {!isOwner ? <button type="button" className="link-btn muted-link" onClick={() => setComplaint({ type: 'ROUTE', id: route.id, label: `маршрут «${route.title}»` })}>Поскаржитися на маршрут</button> : <span />}
+                <button type="submit" className="btn btn-primary" disabled={!text.trim() || sending}>{sending ? 'Надсилаємо…' : 'Надіслати'}</button>
+              </div>
             </form>
-          ) : !user && <p className="muted"><Link to="/login">Увійдіть</Link>, щоб оцінити маршрут і залишити коментар.</p>}
-          {user && !isOwner && <button className="link" onClick={() => complain('ROUTE', route.id)}>Поскаржитися на маршрут</button>}
+          ) : !user && (
+            <div className="login-prompt"><Link to="/login" state={{ from: location }} className="btn btn-secondary">Увійти</Link><span className="muted">щоб оцінити маршрут і залишити коментар</span></div>
+          )}
         </section>
       </div>
+
+      <ComplaintDialog target={complaint} onClose={() => setComplaint(null)} onSent={() => { setComplaint(null); toast.success('Скаргу надіслано модераторам'); }} />
     </div>
+  );
+}
+
+function ComplaintDialog({ target, onClose, onSent }: { target: ComplaintTarget | null; onClose: () => void; onSent: () => void }) {
+  const toast = useToast();
+  const [reason, setReason] = useState('WRONG_DATA');
+  const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (target) { setReason(target.type === 'COMMENT' ? 'OFFENSIVE' : 'WRONG_DATA'); setDescription(''); } }, [target]);
+
+  const send = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!target) return;
+    setBusy(true);
+    try { await api.complain({ targetType: target.type, targetId: target.id, reason, description }); onSent(); } catch (err) { toast.error(errorText(err)); } finally { setBusy(false); }
+  };
+
+  return (
+    <Dialog open={!!target} title="Скарга" onClose={onClose}>
+      <form className="form" onSubmit={send}>
+        <p className="dialog-text">Скарга на {target?.label}. Оберіть причину — модератори розглянуть скаргу й повідомлять про рішення.</p>
+        <fieldset className="radio-list">
+          <legend className="sr-only">Причина</legend>
+          {Object.entries(REASONS).map(([k, v]) => (
+            <label key={k} className={`radio-card${reason === k ? ' on' : ''}`}><input type="radio" name="reason" value={k} checked={reason === k} onChange={() => setReason(k)} />{v}</label>
+          ))}
+        </fieldset>
+        <label className="field">Подробиці (необов'язково)
+          <textarea value={description} maxLength={1000} onChange={(e) => setDescription(e.target.value)} placeholder="Наприклад, частина стежки закрита" /></label>
+        <div className="dialog-foot inline">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>Скасувати</button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Надсилаємо…' : 'Надіслати скаргу'}</button>
+        </div>
+      </form>
+    </Dialog>
   );
 }

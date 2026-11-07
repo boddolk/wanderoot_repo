@@ -2,6 +2,7 @@
 
 export type Mode = 'WALK' | 'HIKE' | 'BIKE' | 'CAR';
 export type Role = 'USER' | 'MODERATOR' | 'ADMIN';
+export type RouteStatus = 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
 
 export interface User { id: string; login: string; email: string; displayName: string; role: Role; status: string; bio: string; city: string; createdAt: string }
 export interface UserActivity {
@@ -9,24 +10,30 @@ export interface UserActivity {
   ratingsReceived: number; ratingAvgReceived: number; commentsWritten: number; ratingsGiven: number;
 }
 export interface ProfileChanges { displayName?: string; email?: string; bio?: string; city?: string; currentPassword?: string }
-export const ROLE_LABEL: Record<Role, string> = { USER: 'Мандрівник', MODERATOR: 'Модератор', ADMIN: 'Адміністратор' };
 export interface Point { lat: number; lon: number }
 export interface Poi { id: string; name: string; description: string; category: string; location: Point; sharing: string }
+export interface AuthorCard { id: string; displayName: string; city: string }
 export interface Route {
   id: string; ownerId: string; title: string; description: string; mode: Mode; visibility: string; tags: string[];
-  status: string; hiddenReason: string | null; waypoints: Point[]; pois: Poi[]; lengthKm: number; durationMin: number;
-  ratingAvg: number; ratingCount: number; createdAt: string; updatedAt: string;
+  status: RouteStatus; hiddenReason: string | null; waypoints: Point[]; pois: Poi[]; lengthKm: number; durationMin: number;
+  ratingAvg: number; ratingCount: number; createdAt: string; updatedAt: string; author?: AuthorCard | null;
 }
-export interface RouteSummary { id: string; title: string; mode: Mode; lengthKm: number; durationMin: number; ratingAvg: number; ratingCount: number; tags: string[]; start: Point | null }
+export interface RouteSummary {
+  id: string; title: string; mode: Mode; status: RouteStatus; ownerId: string; lengthKm: number; durationMin: number;
+  ratingAvg: number; ratingCount: number; tags: string[]; start: Point | null; preview: [number, number][]; pendingPois?: number;
+}
 export interface Page<T> { items: T[]; total: number; page: number; pageSize: number }
 export interface CommentView { id: string; authorId: string; authorName: string; text: string; status: string; createdAt: string }
-export interface Complaint { id: string; reporterId: string; targetType: string; targetId: string; reason: string; description: string; status: string; createdAt: string }
+export interface RatingSummary { avg: number; count: number; histogram: number[] }
+export interface ComplaintTarget {
+  exists: boolean; title?: string; text?: string; authorName?: string; mode?: Mode; lengthKm?: number; routeId?: string; status?: string;
+}
+export interface Complaint {
+  id: string; reporterId: string; reporterName: string; targetType: 'ROUTE' | 'COMMENT' | 'USER'; targetId: string; reason: string;
+  description: string; status: string; decision: string | null; createdAt: string; resolvedAt: string | null; target: ComplaintTarget;
+}
+export interface PendingPoi { routeId: string; routeTitle: string; ownerName: string; poi: Poi }
 export interface Notification { id: string; type: string; message: string; link: string | null; read: boolean; createdAt: string }
-
-export const MODE_LABEL: Record<Mode, string> = { WALK: 'Пішки', HIKE: 'Похід', BIKE: 'Велосипед', CAR: 'Автомобіль' };
-export const CATEGORY_LABEL: Record<string, string> = {
-  HISTORY: 'Історична пам\'ятка', NATURE: 'Природа', INFRASTRUCTURE: 'Інфраструктура', PET_FRIENDLY: 'Для тварин', OTHER: 'Інше',
-};
 
 const TOKEN_KEY = 'wanderoot.token';
 export const tokenStore = {
@@ -43,7 +50,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const token = tokenStore.get();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  const res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch {
+    throw new ApiError('Немає з\'єднання з сервером. Перевірте інтернет і спробуйте ще раз', 0);
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new ApiError(data.message ?? `Помилка ${res.status}`, res.status);
@@ -54,7 +66,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 const qs = (params: Record<string, unknown>) =>
-  new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString();
+  new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== '' && v !== null).map(([k, v]) => [k, String(v)])).toString();
 
 export const api = {
   register: (data: { login: string; email: string; password: string; displayName?: string }) => request<{ token: string; user: User }>('POST', '/auth/register', data),
@@ -82,6 +94,7 @@ export const api = {
 
   comments: (id: string) => request<CommentView[]>('GET', `/routes/${id}/comments`),
   addComment: (id: string, text: string) => request<CommentView>('POST', `/routes/${id}/comments`, { text }),
+  ratingSummary: (id: string) => request<RatingSummary>('GET', `/routes/${id}/ratings`),
   myRating: (id: string) => request<{ value: number | null }>('GET', `/routes/${id}/rating`),
   rate: (id: string, value: number) => request<{ ratingAvg: number; ratingCount: number; myRating: number }>('POST', `/routes/${id}/rating`, { value }),
 
@@ -89,18 +102,13 @@ export const api = {
   complaints: (status = 'OPEN') => request<Complaint[]>('GET', `/moderation/complaints?status=${status}`),
   resolve: (id: string, decision: string, note?: string) => request<Complaint>('POST', `/moderation/complaints/${id}/resolve`, { decision, note }),
   restoreRoute: (id: string) => request<Route>('POST', `/moderation/routes/${id}/restore`),
-  pendingPois: () => request<{ routeId: string; routeTitle: string; poi: Poi }[]>('GET', '/moderation/pois'),
+  pendingPois: () => request<PendingPoi[]>('GET', '/moderation/pois'),
   reviewPoi: (routeId: string, poiId: string, approve: boolean) => request<Poi>('POST', `/moderation/pois/${routeId}/${poiId}/${approve ? 'approve' : 'reject'}`),
 
-  notifications: () => request<Notification[]>('GET', '/notifications'),
+  notifications: (unread = false) => request<Notification[]>('GET', `/notifications${unread ? '?unread=true' : ''}`),
   readNotification: (id: string) => request<Notification>('POST', `/notifications/${id}/read`),
 
   users: () => request<User[]>('GET', '/admin/users'),
   setRole: (id: string, role: Role) => request<User>('POST', `/admin/users/${id}/role`, { role }),
   setBlocked: (id: string, blocked: boolean) => request<User>('POST', `/admin/users/${id}/${blocked ? 'block' : 'unblock'}`),
 };
-
-export function formatDuration(min: number): string {
-  const h = Math.floor(min / 60), m = min % 60;
-  return h ? `${h} год ${m} хв` : `${m} хв`;
-}
