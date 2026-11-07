@@ -36,7 +36,8 @@ export class RoutesController {
   @Public()
   @Get(':id')
   get(@CurrentUser() user: User | null, @Param('id') id: string) {
-    return this.core.services.routes.get(user, id);
+    const route = this.core.services.routes.get(user, id);
+    return { ...route, author: this.core.services.profile.publicCard(route.ownerId) };
   }
 
   @Post()
@@ -108,6 +109,12 @@ export class RoutesController {
   @Post(':id/comments')
   addComment(@CurrentUser() user: User, @Param('id') id: string, @Body() body: { text: string }) {
     return this.core.services.feedback.addComment(user, id, body?.text ?? '');
+  }
+
+  @Public()
+  @Get(':id/ratings')
+  ratingSummary(@CurrentUser() user: User | null, @Param('id') id: string) {
+    return this.core.services.feedback.ratingSummary(user, id);
   }
 
   @Get(':id/rating')

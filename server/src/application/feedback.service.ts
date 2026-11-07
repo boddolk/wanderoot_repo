@@ -45,6 +45,13 @@ export class FeedbackService {
     return { ratingAvg: route.ratingAvg, ratingCount: summary.count, myRating: rating.value };
   }
 
+  /** Зведення оцінок маршруту для блоку відгуків: середнє, кількість і розподіл за зірками. */
+  ratingSummary(viewer: Viewer | null, routeId: string): { avg: number; count: number; histogram: number[] } {
+    const route = this.routeService.findVisible(viewer, routeId);
+    const histogram = this.ratings.histogram(routeId);
+    return { avg: route.ratingAvg, count: histogram.reduce((a, b) => a + b, 0), histogram };
+  }
+
   myRating(actor: Viewer, routeId: string): number | null {
     return this.ratings.findValue(routeId, actor.id);
   }

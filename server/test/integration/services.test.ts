@@ -166,6 +166,62 @@ describe('RouteService + SQLite', () => {
   });
 });
 
+describe('Дані для інтерфейсу: мініатюри, статуси, автор, розподіл оцінок', () => {
+  it('картки маршрутів містять статус і спрощену лінію треку; власні – кількість точок на розгляді', () => {
+    const u = registerUser(core, 'olena');
+    const long = Array.from({ length: 100 }, (_, i) => ({ lat: 49.5 + i * 0.001, lon: 25.5 + i * 0.001 }));
+    const r = core.services.routes.create(u, { title: 'Довгий трек', waypoints: long });
+    core.services.routes.publish(u, r.id);
+    const draft = core.services.routes.create(u, { title: 'Чернетка', waypoints: TERNOPIL_LINE });
+    const withPoi = core.services.routes.addPoi(u, draft.id, { name: 'Джерело', lat: 49.554, lon: 25.596 });
+    core.services.routes.suggestPoi(u, draft.id, withPoi.pois[0].id);
+
+    const found = core.services.routes.search({}).items[0];
+    assert.equal(found.status, 'PUBLISHED');
+    assert.equal(found.preview.length, 24);
+    assert.deepEqual(found.preview[0], [49.5, 25.5]);
+    assert.deepEqual(found.preview[23], [49.599, 25.599], 'остання точка зберігається');
+    const mine = core.services.routes.listMine(u);
+    const d = mine.find((m) => m.id === draft.id)!;
+    assert.equal(d.status, 'DRAFT');
+    assert.equal(d.preview.length, 3);
+    assert.equal(d.pendingPois, 1);
+    assert.equal(mine.find((m) => m.id === r.id)!.pendingPois, 0);
+  });
+
+  it('розподіл оцінок і публічна картка автора', () => {
+    const owner = registerUser(core, 'owner');
+    const r = publishedRoute(core, owner);
+    ['aaa', 'bbb', 'ccc'].forEach((login, i) => core.services.feedback.rate(registerUser(core, login), r.id, [5, 5, 3][i]));
+    const s = core.services.feedback.ratingSummary(null, r.id);
+    assert.deepEqual(s.histogram, [0, 0, 1, 0, 2]);
+    assert.equal(s.count, 3);
+    assert.ok(Math.abs(s.avg - 13 / 3) < 0.01);
+    core.services.profile.update(owner, { displayName: 'Власник', city: 'Тернопіль' });
+    assert.deepEqual(core.services.profile.publicCard(owner.id), { id: owner.id, displayName: 'Власник', city: 'Тернопіль' });
+    assert.equal(core.services.profile.publicCard('missing'), null);
+  });
+
+  it('скарги в черзі модерації містять автора скарги та опис об\'єкта', () => {
+    const owner = registerUser(core, 'owner');
+    const reporter = registerUser(core, 'reporter');
+    const mod = registerUser(core, 'moder', 'MODERATOR');
+    const r = publishedRoute(core, owner);
+    const c = core.services.feedback.addComment(owner, r.id, 'Мій коментар');
+    core.services.moderation.fileComplaint(reporter, { targetType: 'ROUTE', targetId: r.id, reason: 'WRONG_DATA' });
+    core.services.moderation.fileComplaint(reporter, { targetType: 'COMMENT', targetId: c.id, reason: 'SPAM' });
+    const list = core.services.moderation.listComplaints(mod);
+    const route = list.find((x) => x.targetType === 'ROUTE')!;
+    assert.equal(route.reporterName, 'reporter');
+    assert.equal(route.target.title, r.title);
+    assert.equal(route.target.authorName, 'owner');
+    assert.equal(route.target.mode, 'WALK');
+    const comment = list.find((x) => x.targetType === 'COMMENT')!;
+    assert.equal(comment.target.text, 'Мій коментар');
+    assert.equal(comment.target.routeId, r.id);
+  });
+});
+
 describe('FeedbackService: оцінки, коментарі, сповіщення', () => {
   it('середній рейтинг перераховується, повторна оцінка замінює попередню', () => {
     const owner = registerUser(core, 'owner');

@@ -5,6 +5,18 @@ import { Permission, assertCan } from '../domain/users/role';
 import { Clock, CommentRepository, ComplaintRepository, EventBus, RouteRepository, TransactionRunner, UserRepository } from './ports';
 import { RouteService } from './route.service';
 
+/** Опис об'єкта скарги для черги модерації. */
+export interface ComplaintTarget {
+  exists: boolean;
+  title?: string;
+  text?: string;
+  authorName?: string;
+  mode?: string;
+  lengthKm?: number;
+  routeId?: string;
+  status?: string;
+}
+
 /** Фасад для скарг, модерації контенту та затвердження точок інтересу. */
 export class ModerationService {
   constructor(
@@ -25,9 +37,35 @@ export class ModerationService {
     return complaint.toJSON();
   }
 
+  /** Скарги з потрібним модератору контекстом: хто поскаржився і на що саме (назва, автор, текст). */
   listComplaints(actor: Viewer, status: 'OPEN' | 'RESOLVED' | 'REJECTED' = 'OPEN') {
     assertCan(actor.role, Permission.MODERATE_CONTENT);
-    return this.complaints.listByStatus(status).map((c) => c.toJSON());
+    return this.complaints.listByStatus(status).map((c) => ({
+      ...c.toJSON(),
+      reporterName: this.nameOf(c.reporterId),
+      target: this.describeTarget(c.targetType, c.targetId),
+    }));
+  }
+
+  private nameOf(userId: string): string {
+    return this.users.findById(userId)?.displayName ?? 'невідомий';
+  }
+
+  private describeTarget(type: string, id: string): ComplaintTarget {
+    if (type === 'ROUTE') {
+      const route = this.routes.findById(id);
+      return route
+        ? { exists: true, title: route.title, authorName: this.nameOf(route.ownerId), mode: route.mode, lengthKm: route.lengthKm(), status: route.status }
+        : { exists: false };
+    }
+    if (type === 'COMMENT') {
+      const comment = this.comments.findById(id);
+      return comment
+        ? { exists: true, text: comment.text, authorName: this.nameOf(comment.authorId), routeId: comment.routeId, status: comment.status }
+        : { exists: false };
+    }
+    const user = this.users.findById(id);
+    return user ? { exists: true, title: user.displayName, authorName: user.displayName, status: user.status } : { exists: false };
   }
 
   resolve(actor: Viewer, complaintId: string, decision: string, note = '') {
@@ -70,7 +108,9 @@ export class ModerationService {
 
   listPendingPois(actor: Viewer) {
     assertCan(actor.role, Permission.APPROVE_POI);
-    return this.routes.listPendingPois().map((p) => ({ routeId: p.routeId, routeTitle: p.routeTitle, ownerId: p.ownerId, poi: p.poi.toJSON() }));
+    return this.routes.listPendingPois().map((p) => ({
+      routeId: p.routeId, routeTitle: p.routeTitle, ownerId: p.ownerId, ownerName: this.nameOf(p.ownerId), poi: p.poi.toJSON(),
+    }));
   }
 
   reviewPoi(actor: Viewer, routeId: string, poiId: string, approve: boolean) {

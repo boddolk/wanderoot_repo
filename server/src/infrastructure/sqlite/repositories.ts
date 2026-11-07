@@ -152,7 +152,7 @@ export class SqliteRouteRepository implements RouteRepository {
     const order = q.sort === 'rating' ? 'r.rating_avg DESC, r.rating_count DESC' : q.sort === 'length' ? 'r.length_km ASC' : 'r.created_at DESC';
     const page = q.page ?? 1;
     const size = q.pageSize ?? 20;
-    const select = `SELECT r.id, r.title, r.mode, r.owner_id, r.length_km, r.rating_avg, r.rating_count, r.start_lat, r.start_lon, r.created_at,
+    const select = `SELECT r.id, r.title, r.mode, r.status, r.waypoints, r.owner_id, r.length_km, r.rating_avg, r.rating_count, r.start_lat, r.start_lon, r.created_at,
         (SELECT group_concat(tag, ',') FROM route_tags t WHERE t.route_id = r.id) AS tags
       FROM routes r WHERE ${where.join(' AND ')} ORDER BY ${order}`;
 
@@ -167,7 +167,8 @@ export class SqliteRouteRepository implements RouteRepository {
   }
 
   listByOwner(ownerId: string): RouteSummary[] {
-    return (this.s.db.prepare(`SELECT r.*, (SELECT group_concat(tag, ',') FROM route_tags t WHERE t.route_id = r.id) AS tags
+    return (this.s.db.prepare(`SELECT r.*, (SELECT group_concat(tag, ',') FROM route_tags t WHERE t.route_id = r.id) AS tags,
+        (SELECT COUNT(*) FROM pois p WHERE p.route_id = r.id AND p.sharing = 'PENDING') AS pending_pois
       FROM routes r WHERE r.owner_id = ? ORDER BY r.updated_at DESC`).all(ownerId) as Row[]).map(summary);
   }
 
@@ -181,11 +182,24 @@ export class SqliteRouteRepository implements RouteRepository {
   }
 }
 
+/** Кількість точок у спрощеній лінії маршруту для мініатюр у списках. */
+export const PREVIEW_POINTS = 24;
+
+/** Рівномірно проріджені точки шляху (зберігаються перша й остання) з округленням до ~1 м. */
+function preview(waypointsJson: string | null): [number, number][] {
+  const pts = waypointsJson ? (JSON.parse(waypointsJson) as [number, number][]) : [];
+  const picked = pts.length <= PREVIEW_POINTS ? pts
+    : Array.from({ length: PREVIEW_POINTS }, (_, i) => pts[Math.round((i * (pts.length - 1)) / (PREVIEW_POINTS - 1))]);
+  return picked.map(([lat, lon]) => [Math.round(lat * 1e5) / 1e5, Math.round(lon * 1e5) / 1e5]);
+}
+
 function summary(r: Row): RouteSummary {
   return {
-    id: r.id, title: r.title, mode: r.mode, ownerId: r.owner_id, lengthKm: r.length_km, ratingAvg: r.rating_avg,
+    id: r.id, title: r.title, mode: r.mode, status: r.status, ownerId: r.owner_id, lengthKm: r.length_km, ratingAvg: r.rating_avg,
     ratingCount: r.rating_count, tags: r.tags ? String(r.tags).split(',') : [],
     start: r.start_lat === null ? null : { lat: r.start_lat, lon: r.start_lon }, createdAt: new Date(r.created_at),
+    preview: preview(r.waypoints),
+    ...(r.pending_pois !== undefined ? { pendingPois: Number(r.pending_pois) } : {}),
   };
 }
 
@@ -201,6 +215,13 @@ export class SqliteRatingRepository implements RatingRepository {
   summary(routeId: string): { avg: number; count: number } {
     const row = this.s.db.prepare('SELECT AVG(value) AS avg, COUNT(*) AS n FROM ratings WHERE route_id = ?').get(routeId) as Row;
     return { avg: row.avg ?? 0, count: row.n };
+  }
+
+  histogram(routeId: string): number[] {
+    const counts = [0, 0, 0, 0, 0];
+    (this.s.db.prepare('SELECT value, COUNT(*) AS n FROM ratings WHERE route_id = ? GROUP BY value').all(routeId) as Row[])
+      .forEach((r) => { if (r.value >= 1 && r.value <= 5) counts[r.value - 1] = Number(r.n); });
+    return counts;
   }
 
   findValue(routeId: string, userId: string): number | null {

@@ -52,6 +52,7 @@ export interface RouteSummary {
   id: string;
   title: string;
   mode: TransportMode;
+  status: string;
   ownerId: string;
   lengthKm: number;
   ratingAvg: number;
@@ -59,6 +60,10 @@ export interface RouteSummary {
   tags: string[];
   start: { lat: number; lon: number } | null;
   createdAt: Date;
+  /** Спрощена лінія маршруту [lat, lon] для мініатюр. */
+  preview: [number, number][];
+  /** Кількість точок інтересу, що чекають на модерацію (лише у списку власних маршрутів). */
+  pendingPois?: number;
 }
 
 export interface Page<T> {
@@ -88,6 +93,8 @@ export interface RouteRepository {
 export interface RatingRepository {
   upsert(rating: Rating): void;
   summary(routeId: string): { avg: number; count: number };
+  /** Кількість оцінок кожного значення: індекс 0 – одна зірка, 4 – п'ять. */
+  histogram(routeId: string): number[];
   findValue(routeId: string, userId: string): number | null;
 }
 

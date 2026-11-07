@@ -26,6 +26,12 @@ export class ProfileService {
     return { user: user.toPublic(), activity: this.users.activity(user.id) };
   }
 
+  /** Коротка публічна картка автора (без email і службових полів). */
+  publicCard(userId: string): { id: string; displayName: string; city: string } | null {
+    const user = this.users.findById(userId);
+    return user ? { id: user.id, displayName: user.displayName, city: user.city } : null;
+  }
+
   update(actor: { id: string }, data: ProfileChanges & { currentPassword?: string }): ReturnType<User['toPublic']> {
     const user = this.mustFind(actor.id);
     const changes: ProfileChanges = {

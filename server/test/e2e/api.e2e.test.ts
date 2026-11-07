@@ -94,6 +94,12 @@ describe('REST API WandeRoot', () => {
     assert.equal(comments.body.length, 1);
     const notes = await request(http).get('/api/notifications').set(auth('olena'));
     assert.equal(notes.body.length, 2);
+    const summary = await request(http).get(`/api/routes/${routeId}/ratings`);
+    assert.equal(summary.status, 200);
+    assert.deepEqual(summary.body.histogram, [0, 0, 0, 1, 0]);
+    const page = await request(http).get(`/api/routes/${routeId}`);
+    assert.equal(page.body.author.displayName, 'olena');
+    assert.equal(page.body.author.email, undefined, 'email автора не розкривається');
   });
 
   it('експорт GPX і імпорт файлу', async () => {
