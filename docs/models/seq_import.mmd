@@ -1,0 +1,24 @@
+sequenceDiagram
+actor U as Користувач
+participant UI as Веб-застосунок
+participant C as ExchangeController
+participant S as ExchangeService
+participant F as RouteCodec (GPX)
+participant R as RouteRepository
+U->>UI: обирає файл track.gpx
+UI->>C: POST /api/routes/import
+C->>S: importRoute(userId, fileName, text)
+S->>S: вибір кодека за розширенням
+S->>F: decode(text)
+alt файл некоректний
+  F-->>S: помилка формату
+  S-->>C: помилка валідації
+  C-->>UI: 422 + причина
+else дані розпізнано
+  F-->>S: точки та POI
+  S->>S: Route.create() – чернетка
+  S->>R: save(route)
+  S-->>C: route
+  C-->>UI: 201 Created
+  UI-->>U: відкриває редактор маршруту
+end

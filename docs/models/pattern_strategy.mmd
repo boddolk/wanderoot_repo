@@ -1,0 +1,21 @@
+classDiagram
+direction TB
+class TravelTimeEstimator {
+  -strategies: Map~TransportMode, TravelTimeStrategy~
+  +register(s: TravelTimeStrategy) void
+  +estimateMinutes(mode, km: number) number
+}
+class TravelTimeStrategy {
+  <<interface>>
+  +mode: TransportMode
+  +estimateMinutes(km: number) number
+}
+class WalkingStrategy
+class HikingStrategy
+class CyclingStrategy
+class DrivingStrategy
+TravelTimeEstimator o--> "1..*" TravelTimeStrategy
+TravelTimeStrategy <|.. WalkingStrategy
+TravelTimeStrategy <|.. HikingStrategy
+TravelTimeStrategy <|.. CyclingStrategy
+TravelTimeStrategy <|.. DrivingStrategy

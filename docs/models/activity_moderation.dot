@@ -1,0 +1,31 @@
+// Діаграма діяльності: розгляд скарги
+digraph Activity {
+  graph [rankdir=TB, fontname="Liberation Serif", nodesep=0.35, ranksep=0.32, pad=0.2];
+  node  [fontname="Liberation Serif", fontsize=15, shape=box, style=rounded, width=2.6];
+  edge  [fontname="Liberation Serif", fontsize=13, arrowhead=vee];
+  start [shape=circle, style=filled, fillcolor=black, label="", width=0.22];
+  a1 [label="Користувач подає скаргу\n(ціль, причина, опис)"];
+  a2 [label="Система зберігає скаргу\nзі статусом OPEN"];
+  a3 [label="Модератор відкриває\nчергу скарг"];
+  a4 [label="Модератор переглядає\nконтент і історію"];
+  d1 [shape=diamond, style="", label="Рішення?", width=1.6, height=0.8];
+  a5 [label="Приховати контент\n(route.hide / comment.hide)"];
+  a6 [label="Заблокувати автора"];
+  d2 [shape=diamond, style="", label="Роль\nADMIN?", width=1.3, height=0.8];
+  a7 [label="Відхилити скаргу\n(REJECTED)"];
+  a8 [label="Позначити скаргу\nRESOLVED"];
+  fk [shape=box, style=filled, fillcolor=black, label="", height=0.06, width=3.2];
+  a9 [label="Сповістити автора\nконтенту"];
+  a10 [label="Сповістити автора\nскарги"];
+  jn [shape=box, style=filled, fillcolor=black, label="", height=0.06, width=3.2];
+  fin [shape=doublecircle, style=filled, fillcolor=black, label="", width=0.16];
+  start -> a1 -> a2 -> a3 -> a4 -> d1;
+  d1 -> a5 [label="[порушення]"];
+  d1 -> d2 [label="[грубе порушення]"];
+  d1 -> a7 [label="[порушень немає]"];
+  d2 -> a6 [label="[так]"];
+  d2 -> a3 [label="[ні] передати\nадміністратору"];
+  a5 -> a8; a6 -> a8;
+  a8 -> fk; a7 -> fk;
+  fk -> a9; fk -> a10; a9 -> jn; a10 -> jn; jn -> fin;
+}

@@ -1,0 +1,76 @@
+erDiagram
+  users ||--o{ routes : "створює"
+  routes ||--o{ route_tags : "має"
+  routes ||--o{ pois : "містить"
+  routes ||--o{ ratings : "отримує"
+  users ||--o{ ratings : "ставить"
+  routes ||--o{ comments : "має"
+  users ||--o{ comments : "пише"
+  users ||--o{ complaints : "подає"
+  users ||--o{ notifications : "отримує"
+  users {
+    TEXT id PK
+    TEXT login UK
+    TEXT email UK
+    TEXT display_name
+    TEXT password_hash
+    TEXT role
+    TEXT status
+    INTEGER failed_logins
+    TEXT locked_until
+  }
+  routes {
+    TEXT id PK
+    TEXT owner_id FK
+    TEXT title
+    TEXT mode
+    TEXT visibility
+    TEXT status
+    TEXT waypoints "JSON"
+    REAL start_lat
+    REAL start_lon
+    REAL length_km
+    REAL rating_avg
+    INTEGER rating_count
+  }
+  route_tags {
+    TEXT route_id PK
+    TEXT tag PK
+  }
+  pois {
+    TEXT id PK
+    TEXT route_id FK
+    TEXT name
+    TEXT category
+    REAL lat
+    REAL lon
+    TEXT sharing
+  }
+  ratings {
+    TEXT route_id PK
+    TEXT user_id PK
+    INTEGER value
+  }
+  comments {
+    TEXT id PK
+    TEXT route_id FK
+    TEXT author_id FK
+    TEXT text
+    TEXT status
+  }
+  complaints {
+    TEXT id PK
+    TEXT reporter_id FK
+    TEXT target_type
+    TEXT target_id
+    TEXT reason
+    TEXT status
+    TEXT decision
+  }
+  notifications {
+    TEXT id PK
+    TEXT user_id FK
+    TEXT type
+    TEXT message
+    INTEGER is_read
+  }

@@ -1,0 +1,69 @@
+classDiagram
+direction TB
+class User {
+  -id: UserId
+  -login: string
+  -role: Role
+  -status: AccountStatus
+  +changeRole(r: Role) void
+  +block() void
+  +isLocked(now) boolean
+}
+class Route {
+  -id: RouteId
+  -ownerId: UserId
+  -title: string
+  -mode: TransportMode
+  -visibility: Visibility
+  -status: RouteStatus
+  +setWaypoints(p: GeoPoint[]) void
+  +addPoi(poi) void
+  +lengthKm() number
+  +publish() void
+  +hide(reason) void
+  +isVisibleTo(v: Viewer) boolean
+}
+class GeoPoint {
+  <<value object>>
+  +lat: number
+  +lon: number
+  +distanceTo(p) number
+}
+class PointOfInterest {
+  -name: string
+  -category: PoiCategory
+  -sharing: PoiSharing
+  +suggest() void
+  +approve() void
+}
+class RouteStatus {
+  <<interface>>
+}
+class Rating {
+  -value: 1..5
+}
+class Comment {
+  -text: string
+  -status: CommentStatus
+  +hide() void
+}
+class Complaint {
+  -target: ContentRef
+  -reason: Reason
+  -status: ComplaintStatus
+  +resolve(d, by) void
+}
+class Notification {
+  -type: string
+  -read: boolean
+  +markRead() void
+}
+User "1" --> "0..*" Route : owns
+Route *-- "2..*" GeoPoint : waypoints
+Route *-- "0..*" PointOfInterest
+PointOfInterest --> GeoPoint
+Route --> RouteStatus
+Rating "0..*" --> "1" Route
+Comment "0..*" --> "1" Route
+Complaint "0..*" --> "1" User : reporter
+Notification "0..*" --> "1" User

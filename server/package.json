@@ -1,0 +1,36 @@
+{
+  "name": "wanderoot-api",
+  "version": "1.0.0",
+  "description": "WandeRoot – серверна частина (REST API) інтерактивного путівника",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "dev": "tsx watch src/main.ts",
+    "seed": "tsx scripts/seed.ts",
+    "test": "tsx --test \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\"",
+    "test:cov": "tsx --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-exclude=\"src/api/**\" --test-coverage-exclude=\"src/main.ts\" \"test/unit/**/*.test.ts\" \"test/integration/**/*.test.ts\"",
+    "test:e2e": "tsx --test \"test/e2e/**/*.test.ts\"",
+    "test:all": "npm test && npm run test:e2e",
+    "bench": "tsx test/perf/benchmark.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^11.0.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "~5.7.2"
+  }
+}

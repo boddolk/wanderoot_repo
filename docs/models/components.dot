@@ -1,0 +1,19 @@
+// Діаграма компонентів WandeRoot (шарувата архітектура)
+digraph Components {
+  graph [rankdir=TB, fontname="Liberation Serif", fontsize=17, nodesep=0.35, ranksep=0.55, pad=0.2, newrank=true];
+  node  [fontname="Liberation Serif", fontsize=15, shape=component, width=2.2, height=0.55];
+  edge  [fontname="Liberation Serif", fontsize=13, arrowhead=vee, style=dashed];
+
+  subgraph cluster_client { label="Клієнт (браузер)"; style=rounded;
+    spa [label="Веб-застосунок\n(React SPA)"]; }
+  subgraph cluster_pres { label="Шар представлення"; style=rounded;
+    ctrl [label="REST-контролери\n(NestJS)"]; guard [label="Перевірка доступу\n(JWT, ролі)"]; {rank=same; ctrl; guard} }
+  subgraph cluster_bl { label="Шар бізнес-логіки"; style=rounded;
+    svc [label="Сервіси\n(маршрути, відгуки,\nмодерація, обмін)"]; dom [label="Доменна модель\n(Route, User, ...)"]; {rank=same; svc; dom} }
+  subgraph cluster_dal { label="Шар доступу до даних"; style=rounded;
+    repo [label="Репозиторії"]; }
+  db [shape=cylinder, label="БД SQLite", width=1.4];
+
+  spa -> ctrl [label=" HTTP / JSON", style=solid];
+  ctrl -> guard; ctrl -> svc; svc -> dom; svc -> repo; repo -> db [style=solid];
+}

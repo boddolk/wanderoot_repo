@@ -1,0 +1,22 @@
+sequenceDiagram
+actor U as Користувач
+participant UI as Веб-застосунок
+participant C as FeedbackController
+participant S as FeedbackService
+participant R as CommentRepository
+participant N as NotificationService
+U->>UI: вводить коментар
+UI->>C: POST /api/routes/{id}/comments
+C->>S: addComment(userId, routeId, text)
+S->>S: перевірка тексту
+alt текст некоректний
+  S-->>C: помилка валідації
+  C-->>UI: 422 + причина
+else текст коректний
+  S->>R: save(comment)
+  S-)N: подія CommentAdded
+  N->>N: сповіщення власнику маршруту
+  S-->>C: comment
+  C-->>UI: 201 Created
+  UI-->>U: коментар у списку
+end

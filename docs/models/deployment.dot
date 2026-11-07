@@ -1,0 +1,13 @@
+// Діаграма розгортання WandeRoot
+digraph Deployment {
+  graph [rankdir=LR, fontname="Liberation Serif", fontsize=16, nodesep=0.5, ranksep=1.0, pad=0.2];
+  node  [fontname="Liberation Serif", fontsize=15, shape=box3d];
+  edge  [fontname="Liberation Serif", fontsize=13, arrowhead=vee];
+  client [label="«device»\nКомп'ютер / смартфон\n\nВеб-браузер:\nwanderoot-web"];
+  server [label="«device»\nСервер (Docker)\n\nNode.js 22:\nwanderoot-api"];
+  db     [shape=cylinder, label="wanderoot.db\n(SQLite)"];
+  osm    [label="«external»\nСервер тайлів\nOpenStreetMap"];
+  client -> server [label="HTTPS, REST/JSON"];
+  server -> db [label="файловий доступ"];
+  client -> osm [label="HTTPS (тайли карти)"];
+}

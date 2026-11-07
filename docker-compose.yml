@@ -1,0 +1,19 @@
+services:
+  api:
+    build: ./server
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
+      ADMIN_LOGIN: ${ADMIN_LOGIN:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin12345}
+    volumes:
+      - wanderoot-data:/data
+    restart: unless-stopped
+  web:
+    build: ./web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+volumes:
+  wanderoot-data:
